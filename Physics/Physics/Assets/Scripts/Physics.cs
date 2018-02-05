@@ -6,17 +6,23 @@ public class Physics : MonoBehaviour {
     List<Particule> particules = new List<Particule>();
     public int nbParticules;
     public int gridSize;
-    public int cellSize;
+    public int cellSize; // == neighbour distance
     public float gravity;
     public GameObject prefab;
     public float boundaryForce;
     public float boundaryOffset;
     public float speedMax;
+    public float densityColor;
+    public float rho;
+    public float k;
+    public float knear;
+
+    
     private GameObject go;
     private Vector3 position = new Vector3(0,0,0);
     private Camera cam;
     private float gridWidth;
-    private List<Particule>[,] gridParticule; 
+    private List<Particule>[,] gridParticule;
 
 
 
@@ -33,21 +39,23 @@ public class Physics : MonoBehaviour {
             
             particules.Add(go.GetComponent<Particule>());
             particules[i].position = position;
-            particules[i].velocity = Vector3.left + Vector3.up;
+          
         }
         initGrid();
         fillGrid();
-	}
+        UpdateDensity();
+
+    }
 
 	void FixedUpdate () {
      
         ApplyGravity();
+        UpdateDensity();
+        Relaxation();
         BoundaryRepulsion();
         clampSpeed();
         UpdateAllParticulesPosition();
         fillGrid();
-        
-
     }
 
     void UpdateAllParticulesPosition() {
@@ -92,20 +100,21 @@ public class Physics : MonoBehaviour {
 
     void clampSpeed() {
         foreach(Particule particule in particules) {
-            if(particule.velocity.sqrMagnitude > speedMax * speedMax) {
-                particule.velocity = particule.velocity.normalized * speedMax;
+         
+            if (particule.velocity.sqrMagnitude > speedMax * speedMax) {
+               particule.velocity = particule.velocity.normalized * speedMax;
             }
+          
         }
     }
 
     void fillGrid() {
-        int x = 0, y = 0;
         clearGrid();
         foreach (Particule particule in particules) {
-            x = (int)particule.position.x / cellSize;
-            y = (int)particule.position.y / cellSize;
-
-            gridParticule[x, y].Add(particule);
+            particule.gridX = (int)particule.position.x / cellSize;
+            particule.gridY = (int)particule.position.y / cellSize;
+            
+            gridParticule[particule.gridX, particule.gridY].Add(particule);
         }  
          
     }
@@ -127,4 +136,126 @@ public class Physics : MonoBehaviour {
             }
         }
     }
+
+    void UpdateDensity() {
+   
+        List<int[]> indexes = new List<int[]>();
+        foreach (Particule particule in particules) {
+            particule.squareDensity = 0;
+            particule.neighbours.Clear();
+            indexes = IndexToExplore(particule);
+            foreach(int[] index in indexes) {
+                calculDensity(index[0], index[1], particule);
+            }
+            particule.neighbours.Remove(particule);
+            particule.gameObject.GetComponent<SpriteRenderer>().color = getColor(particule.squareDensity);
+
+        }
+    }
+
+    Color getColor(float density) {
+        return new Color(1- density / densityColor, density/ densityColor, 0.5f,0.5f);
+    }
+
+    bool isNeighbour(Particule a , Particule b) {
+        return Vector3.Distance(a.position, b.position) < cellSize;
+    }
+
+    void calculDensity(int i, int j, Particule particuleRef) {
+        float dist;
+        foreach(Particule particule in gridParticule[i, j]) {
+            if(isNeighbour(particuleRef, particule)) {
+                particuleRef.neighbours.Add(particule);
+                dist = (1 - Vector3.Distance(particuleRef.position, particule.position) / cellSize);
+                particuleRef.squareDensity += dist * dist;
+                particuleRef.cubeDensity += dist * dist * dist;
+         
+            }
+        }
+    }
+
+    List<int[]> IndexToExplore(Particule particuleRef) {
+        int x = particuleRef.gridX;
+        int y = particuleRef.gridY;
+       
+        int[] coord1 = new int[2];
+        List<int[]> index = new List<int[]>();
+        
+        coord1[0] = x;
+        coord1[1] = y;
+        index.Add(coord1);
+        if ((x+1) < gridSize && (y+1) < gridSize) {
+          
+            int[] coord = new int[2];
+            coord[0] = x+1;
+            coord[1] = y+1;
+            index.Add(coord);
+        }
+        if((x-1) >= 0 && (y-1) >= 0) {
+      
+            int[] coord = new int[2];
+            coord[0] = x - 1;
+            coord[1] = y - 1;
+            index.Add(coord);
+        }
+        if((x+1) < gridSize) {
+          
+            int[] coord = new int[2];
+            coord[0] = x + 1;
+            coord[1] = y ;
+            index.Add(coord);
+        }
+        if ((y+1) < gridSize) {
+       
+            int[] coord = new int[2];
+            coord[0] = x;
+            coord[1] = y + 1;
+            index.Add(coord);
+        }
+        if((y-1) >= 0) {
+     
+            int[] coord = new int[2];
+            coord[0] = x;
+            coord[1] = y - 1;
+            index.Add(coord);
+        }
+        if((x-1) >= 0) {
+
+            int[] coord = new int[2];
+            coord[0] = x - 1;
+            coord[1] = y ;
+            index.Add(coord);
+        }
+        if((x+1) < gridSize && (y-1) >= 0) {
+       
+            int[] coord = new int[2];
+            coord[0] = x + 1;
+            coord[1] = y - 1;
+            index.Add(coord);
+        }
+        if((x-1) >= 0 && (y+1) < gridSize) {
+         
+            int[] coord = new int[2];
+            coord[0] = x - 1;
+            coord[1] = y + 1;
+            index.Add(coord);
+        }
+
+        return index;
+    }
+
+    void Relaxation() {
+        float pi, pinear, dist;
+        foreach (Particule particule in particules) {
+            pi = k * (particule.squareDensity - rho);
+            pinear = knear * particule.cubeDensity;
+
+            foreach(Particule neighbour in particule.neighbours) {
+                dist = 1 - (Vector3.Distance(particule.position, neighbour.position) / cellSize);
+                neighbour.velocity += (pi * dist + pinear * dist * dist) * -1.0f * (particule.position - neighbour.position).normalized;  
+            }  
+        }
+    }
+
+
 }

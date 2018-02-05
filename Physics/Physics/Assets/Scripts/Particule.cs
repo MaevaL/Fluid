@@ -6,7 +6,13 @@ public class Particule : MonoBehaviour {
 
     public Vector3 velocity;
     public Vector3 position;
-    
+    public float squareDensity;
+    public float cubeDensity;
+    public int gridX;
+    public int gridY;
+    public List<Particule> neighbours;
+
+
 
 
     public void UpdatePosition() {
